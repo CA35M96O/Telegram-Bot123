@@ -1,0 +1,29 @@
+# requirements.txt
+# Telegram Bot 系统依赖包
+
+# 核心依赖
+python-telegram-bot==20.7
+SQLAlchemy==2.0.28
+python-dotenv==1.0.0
+requests==2.31.0
+# DNS解析支持
+dnspython==2.8.0
+
+# 系统监控
+psutil==5.9.5
+
+# 时间处理
+pytz==2023.3.post1
+# 数据处理
+pandas==2.2.2
+
+# 缓存支持
+cachetools==4.2.2
+# 异步支持
+aiohttp==3.9.5
+
+# 配置管理
+pydantic==2.7.1
+
+# 日志增强
+rich==13.7.1
