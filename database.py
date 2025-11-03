@@ -174,6 +174,9 @@ class Submission(Base):
     # 新增：回访评价相关字段
     feedback_sent = Column(Boolean, default=False)  # 是否已发送回访评价
     feedback_sent_at = Column(DateTime(timezone=True))  # 回访评价发送时间
+    # 新增：定时发布相关字段
+    scheduled_publish_time = Column(DateTime(timezone=True))  # 定时发布时间
+    custom_keyword = Column(String(100))  # 自定义关键词
     
     # 添加索引以提高查询性能
     __table_args__ = (
@@ -182,6 +185,7 @@ class Submission(Base):
         Index('idx_submissions_timestamp', 'timestamp'),
         Index('idx_submissions_category', 'category'),
         Index('idx_submissions_handled_by', 'handled_by'),
+        Index('idx_submissions_scheduled_publish_time', 'scheduled_publish_time'),
     )
 
 class UserState(Base):
