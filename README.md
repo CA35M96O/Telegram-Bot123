@@ -14,13 +14,13 @@
 
 #### Windows 系统一键部署
 
-```cmd
+``cmd
 deploy.bat
 ```
 
 #### Linux/macOS 系统一键部署
 
-```bash
+```
 chmod +x deploy.sh
 ./deploy.sh
 ```
@@ -29,7 +29,7 @@ chmod +x deploy.sh
 
 项目支持 Docker 容器化部署，确保环境一致性：
 
-```bash
+```
 # 构建并启动容器
 docker-compose up -d
 
@@ -88,6 +88,10 @@ docker-compose down
 ├── .env.example             # 环境变量模板
 ├── .env.template            # 环境变量模板
 ├── .gitignore              # Git忽略文件
+├── deploy.sh               # Linux/macOS 一键部署脚本
+├── deploy.bat              # Windows 一键部署脚本
+├── Dockerfile              # Docker 镜像构建文件
+├── docker-compose.yml      # Docker Compose 编排文件
 ├── handlers/               # 消息处理器
 │   ├── __init__.py
 │   ├── admin.py           # 管理员功能（已模块化，保留兼容性）
