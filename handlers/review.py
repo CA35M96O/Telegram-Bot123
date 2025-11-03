@@ -659,7 +659,7 @@ async def handle_review_callback(update: Update, context: CallbackContext):
             
             # 设置用户状态为输入关键词
             logger.info(f"[DEBUG] Setting user state for user {user.id} to enter_publish_keyword with sub_id {sub_id}")
-            db.set_user_state(user.id, "enter_publish_keyword", {"sub_id": sub_id})
+            db.set_user_state(user.id, "enter_publish_keyword", {"sub_id": sub_id, "immediate_publish": True})
             
             try:
                 await query.answer()
@@ -1329,36 +1329,16 @@ async def handle_publish_keyword_input(update: Update, context: CallbackContext)
     
     # 获取用户状态
     state, state_data = db.get_user_state(user.id)
-    # 添加详细调试日志
-    logger.info(f"[DEBUG] handle_publish_keyword_input - User {user.id} state: {state}, state_data: {state_data}")
+    logger.info(f"[DEBUG] Current state: {state}, state_data: {state_data}")
     
-    # 优化状态检测逻辑
-    if state is None:
-        logger.info(f"[DEBUG] User {user.id} has no state, ignoring message")
+    if str(state) != "enter_publish_keyword" or not state_data or "sub_id" not in state_data:
+        logger.info(f"[DEBUG] Invalid state for user {user.id}, state: {state}")
         return
     
-    # 检查状态是否为enter_publish_keyword
-    if str(state) != "enter_publish_keyword":
-        logger.info(f"[DEBUG] User {user.id} not in enter_publish_keyword state (current: {state}), ignoring message")
-        return
-    
-    # 检查state_data是否存在且包含sub_id
-    if not state_data:
-        logger.info(f"[DEBUG] User {user.id} state_data is empty, clearing invalid state")
-        db.clear_user_state(user.id)
-        return
-    
-    if "sub_id" not in state_data:
-        logger.info(f"[DEBUG] User {user.id} state_data missing sub_id, clearing invalid state")
-        db.clear_user_state(user.id)
-        return
-    
-    # 如果在关键词输入状态，处理关键词
+    sub_id = state_data["sub_id"]
+    immediate_publish = state_data.get("immediate_publish", False)
     keyword = update.message.text.strip()
-    sub_id = state_data.get("sub_id")
     
-    # 添加详细调试日志
-    logger.info(f"[DEBUG] handle_publish_keyword_input - Processing keyword input for user {user.id}")
     logger.info(f"[DEBUG] Keyword: '{keyword}', sub_id: {sub_id}")
     logger.info(f"[DEBUG] Full state_data: {state_data}")
     
@@ -1413,83 +1393,58 @@ async def handle_publish_keyword_input(update: Update, context: CallbackContext)
             'custom_keyword': keyword  # 添加自定义关键词
         }
         
-        # 关键词正确，执行发布操作
-        logger.info(f"[DEBUG] Publishing submission {sub_id} with keyword: {keyword}")
-        setattr(submission, 'status', "approved")
+        # 更新投稿状态为已批准
+        setattr(submission, 'status', 'approved')
         setattr(submission, 'handled_by', user.id)
         setattr(submission, 'handled_at', get_beijing_now())
-        session.commit()
+        setattr(submission, 'custom_keyword', keyword)  # 保存自定义关键词
         
-        # 重新查询以获取更新后的数据
-        submission = session.query(Submission).filter_by(id=sub_id).first()
-        
-        try:
-            file_ids = json.loads(getattr(submission, 'file_ids', '[]')) if getattr(submission, 'file_ids') else []
-        except:
-            file_ids = []
+        # 如果是立即发布
+        if immediate_publish:
+            # 立即发布投稿
+            from utils.helpers import publish_submission
+            try:
+                await publish_submission(context, submission_data)
+                session.commit()  # 提交数据库更改
+                
+                # 通知用户投稿已发布
+                try:
+                    await context.bot.send_message(
+                        chat_id=submission_data['user_id'],
+                        text=f"✅ 您的投稿 #{sub_id} 已通过审核并成功发布！\n\n感谢您的分享。"
+                    )
+                except Exception as e:
+                    logger.error(f"通知用户投稿发布失败: {e}")
+                
+                await update.message.reply_text(f"✅ 投稿 #{sub_id} 已立即发布")
+            except Exception as e:
+                logger.error(f"立即发布投稿失败: {e}")
+                await update.message.reply_text(f"❌ 投稿 #{sub_id} 发布失败，请稍后重试")
+        else:
+            # 定时发布投稿
+            from jobs.scheduled_publish import get_next_publish_time
+            scheduled_time = get_next_publish_time()
+            scheduled_time_str = scheduled_time.strftime('%Y-%m-%d %H:%M')
             
-        try:
-            tags = json.loads(getattr(submission, 'tags', '[]')) if getattr(submission, 'tags') else []
-        except:
-            tags = []
+            # 保存定时发布时间
+            setattr(submission, 'scheduled_publish_time', scheduled_time)
+            session.commit()  # 提交数据库更改
             
-        try:
-            file_types = json.loads(getattr(submission, 'file_types', '[]')) if hasattr(submission, 'file_types') and getattr(submission, 'file_types') else []
-        except:
-            file_types = []
-            
-        submission_data = {
-            'id': getattr(submission, 'id'),
-            'user_id': getattr(submission, 'user_id'),
-            'username': getattr(submission, 'username'),
-            'type': getattr(submission, 'type'),
-            'content': getattr(submission, 'content'),
-            'file_id': getattr(submission, 'file_id'),
-            'file_ids': file_ids,
-            'file_types': file_types,
-            'tags': tags,
-            'status': getattr(submission, 'status'),
-            'category': getattr(submission, 'category'),
-            'anonymous': getattr(submission, 'anonymous'),
-            'cover_index': getattr(submission, 'cover_index'),
-            'reject_reason': getattr(submission, 'reject_reason'),
-            'handled_by': getattr(submission, 'handled_by'),
-            'handled_at': getattr(submission, 'handled_at'),
-            'timestamp': getattr(submission, 'timestamp'),
-            'custom_keyword': keyword  # 添加自定义关键词
-        }
-        
-        try:
-            logger.info(f"[DEBUG] Calling publish_submission with data: {submission_data}")
-            await publish_submission(context, submission_data)
-            
-            # 清除用户状态
-            logger.info(f"[DEBUG] Clearing user state for user {user.id}")
-            db.clear_user_state(user.id)
-            
-            await update.message.reply_text(
-                f"✅ 投稿 #{sub_id} 已通过并发布，关键词已设置为：【{keyword}】",
-                reply_markup=back_button("admin_panel")
-            )
-            
+            # 通知用户投稿已安排发布
             try:
                 await context.bot.send_message(
-                    chat_id=getattr(submission, 'user_id'),
-                    text=f"🎉 您的投稿 #{sub_id} 已通过审核并发布！"
+                    chat_id=submission_data['user_id'],
+                    text=f"✅ 您的投稿 #{sub_id} 已通过审核，将在 {scheduled_time_str} 发布！\n\n感谢您的分享。"
                 )
             except Exception as e:
-                logger.error(f"通知用户失败: {e}")
-        except Exception as e:
-            logger.error(f"发布投稿失败: {e}")
-            # 清除用户状态
-            logger.info(f"[DEBUG] Clearing user state for user {user.id} after error")
-            db.clear_user_state(user.id)
+                logger.error(f"通知用户投稿定时发布失败: {e}")
             
             await update.message.reply_text(
-                f"❌ 投稿 #{sub_id} 发布失败，请检查日志：{str(e)}",
-                reply_markup=back_button("admin_panel")
+                f"✅ 投稿 #{sub_id} 已安排在 {scheduled_time_str} 发布"
             )
-            return
+        
+        # 清除用户状态
+        db.clear_user_state(user.id)
 
 async def handle_cancel_publish_callback(update: Update, context: CallbackContext):
     """处理取消发布回调"""
@@ -1501,29 +1456,47 @@ async def handle_cancel_publish_callback(update: Update, context: CallbackContex
     if user is None:
         return
     
-    if not is_reviewer_or_admin(user.id):
-        await query.answer("⚠️ 您没有权限", show_alert=True)
-        return
-    
     data = query.data
     if data is None:
         await query.answer("无效的操作")
         return
     
+    if not is_reviewer_or_admin(user.id):
+        await query.answer("⚠️ 您没有权限", show_alert=True)
+        return
+    
+    # 解析投稿ID
+    import re
     match = re.match(r'^cancel_publish_(\d+)$', data)
     if not match:
         await query.answer("无效的操作")
         return
-        
+    
     sub_id = int(match.group(1))
     
-    # 清除用户状态
-    logger.info(f"[DEBUG] Clearing user state for user {user.id} on cancel publish")
-    db.clear_user_state(user.id)
-    
-    await query.answer("❌ 已取消发布")
-    
-    await query.edit_message_text(
-        text=f"❌ 已取消发布投稿 #{sub_id}",
-        reply_markup=back_button("admin_panel")
-    )
+    # 获取投稿信息
+    with db.session_scope() as session:
+        from database import Submission
+        submission = session.query(Submission).filter_by(id=sub_id).first()
+        if not submission:
+            await query.answer("投稿不存在", show_alert=True)
+            return
+        
+        # 检查投稿状态
+        if getattr(submission, 'status') != 'approved':
+            await query.answer("只有已批准的投稿才能取消发布", show_alert=True)
+            return
+        
+        # 更新投稿状态为待审核
+        setattr(submission, 'status', 'pending')
+        setattr(submission, 'handled_by', None)
+        setattr(submission, 'handled_at', None)
+        setattr(submission, 'custom_keyword', None)
+        setattr(submission, 'scheduled_publish_time', None)
+        
+        try:
+            session.commit()
+            await query.answer("✅ 发布已取消，投稿状态已重置为待审核", show_alert=True)
+        except Exception as e:
+            logger.error(f"取消发布失败: {e}")
+            await query.answer("❌ 取消发布失败，请稍后重试", show_alert=True)

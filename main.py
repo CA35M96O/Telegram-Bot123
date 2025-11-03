@@ -233,9 +233,9 @@ from config import BOT_TOKEN, ADMIN_IDS
 
 # 导入定时任务
 from jobs import (
-    setup_cleanup_job, setup_periodic_report, setup_dns_monitor_job, setup_advanced_scheduler,
     setup_submission_feedback  # 投稿回访评价任务设置
 )
+from jobs.scheduled_publish import setup_scheduled_publish  # 定时发布任务设置
 from jobs.auto_ban import setup_auto_ban_job  # 自动封禁任务
 
 # =====================================================
@@ -564,6 +564,8 @@ async def post_init_handler(application):
         application.job_queue.run_once(setup_advanced_scheduler, when=15) # 15秒后启动高级调度器
         # 新增：设置投稿回访评价任务
         application.job_queue.run_once(setup_submission_feedback, when=20) # 20秒后启动回访评价任务
+        # 新增：设置定时发布任务
+        application.job_queue.run_once(setup_scheduled_publish, when=22) # 22秒后启动定时发布任务
         # 新增：设置自动封禁任务
         application.job_queue.run_once(setup_auto_ban_job, when=25) # 25秒后启动自动封禁任务
         log_system_event("SCHEDULED_JOBS_SET", "All scheduled jobs configured")
